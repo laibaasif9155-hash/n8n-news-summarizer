@@ -1,0 +1,607 @@
+{
+  "name": "News Summarizer",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 16
+            }
+          ]
+        }
+      },
+      "id": "6d2d706e-3fe2-45b9-b766-413168bb027c",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -112,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "url": "<__PLACEHOLDER_VALUE__Reuters RSS feed URL (Reuters has no official public RSS — paste a working feed URL)__>",
+        "options": {}
+      },
+      "id": "d0a1c979-5522-4cdc-adce-8d86aa1e97f2",
+      "name": "Fetch Reuters",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        -336
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://feeds.bbci.co.uk/news/rss.xml",
+        "options": {}
+      },
+      "id": "81a5aad6-0c43-43d9-83d3-4a0b158a0666",
+      "name": "Fetch BBC",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        -528
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://www.aljazeera.com/xml/rss/all.xml",
+        "options": {}
+      },
+      "id": "55347029-c717-4efc-a4d6-d6bf1e6e72d6",
+      "name": "Fetch Al Jazeera",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        -144
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://www.dawn.com/feeds/home",
+        "options": {}
+      },
+      "id": "83fd6612-939d-4d2e-a19b-eb638cb39331",
+      "name": "Fetch Dawn",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        48
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "numberInputs": 4
+      },
+      "id": "b39c2b5b-a1ed-4dcc-b6fd-057162b07fb6",
+      "name": "Merge Feeds",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        400,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sources = [\n  { node: 'Fetch Reuters', name: 'Reuters' },\n  { node: 'Fetch BBC', name: 'BBC News' },\n  { node: 'Fetch Al Jazeera', name: 'Al Jazeera' },\n  { node: 'Fetch Dawn', name: 'Dawn' },\n];\nconst now = Date.now();\nconst out = [];\nfor (const s of sources) {\n  let items = [];\n  try { items = $(s.node).all(); } catch (e) { items = []; }\n  for (const it of items) {\n    const j = (it && it.json) ? it.json : {};\n    const url = String(j.link || j.guid || '').trim();\n    const headline = String(j.title || '').trim();\n    // Exclude any article without a valid original URL or headline.\n    if (!headline || !/^https?:\\/\\//i.test(url)) continue;\n    const rawDate = j.isoDate || j.pubDate || '';\n    let pubIso = '';\n    if (rawDate) { const d = new Date(rawDate); if (!isNaN(d.getTime())) pubIso = d.toISOString(); }\n    const ageHours = pubIso ? (now - new Date(pubIso).getTime()) / 3600000 : null;\n    // Missing dates handled gracefully (kept); known dates older than 72h dropped.\n    const isRecent = ageHours === null ? true : ageHours <= 72;\n    let desc = String(j.contentSnippet || j.content || j.summary || j.description || '');\n    desc = desc.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 1200);\n    let img = '';\n    if (j.enclosure && j.enclosure.url) img = String(j.enclosure.url);\n    else if (j['media:content'] && j['media:content'].$ && j['media:content'].$.url) img = String(j['media:content'].$.url);\n    const blob = (headline + ' ' + desc).toLowerCase();\n    const isPromotional = /(advertisement|sponsored|promo code|shop now|buy now|discount code|use code|subscribe now|newsletter sign-?up)/.test(blob);\n    const pubDate = pubIso ? new Date(pubIso).toUTCString() : 'Unknown';\n    out.push({ json: { headline, description: desc, url, source: s.name, pubDate, pubDateIso: pubIso, imageUrl: img, hasUrl: true, isRecent, isPromotional, ageHours } });\n  }\n}\nout.sort((a, b) => {\n  const aa = a.json.ageHours === null ? Number.MAX_SAFE_INTEGER : a.json.ageHours;\n  const bb = b.json.ageHours === null ? Number.MAX_SAFE_INTEGER : b.json.ageHours;\n  return aa - bb;\n});\nif (out.length === 0) {\n  // Sentinel item keeps the chain flowing (well-formed, filtered out downstream).\n  return [{ json: { headline: '', description: '', url: '', source: '', pubDate: 'Unknown', pubDateIso: '', imageUrl: '', hasUrl: false, isRecent: false, isPromotional: false, ageHours: null } }];\n}\nreturn out;"
+      },
+      "id": "b387ea97-7aa1-469e-9487-9e260ab48ac3",
+      "name": "Combine News",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "url",
+        "options": {}
+      },
+      "id": "cc333b7b-86a3-4381-abe7-65e6e1cd773d",
+      "name": "Remove Duplicates",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        848,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "has-url",
+              "leftValue": "={{ $json.hasUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "recent",
+              "leftValue": "={{ $json.isRecent }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "not-promo",
+              "leftValue": "={{ $json.isPromotional }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ff763e5f-e06f-46f6-adb2-8a32bad2d7e1",
+      "name": "Filter Articles",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1072,
+        -80
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "maxItems": 5
+      },
+      "id": "7b89453a-b618-4944-8d2d-51ee1edfcf49",
+      "name": "Limit Stories",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().filter(i => i.json && i.json.headline && i.json.url);\nconst articles = rows.map((it, idx) => ({\n  index: idx,\n  headline: it.json.headline,\n  description: it.json.description || '',\n  source: it.json.source || '',\n  pubDate: it.json.pubDate || 'Unknown',\n  url: it.json.url,\n  imageUrl: it.json.imageUrl || '',\n}));\nreturn [{ json: { articles, count: articles.length } }];"
+      },
+      "id": "4e36ebe1-8774-4402-b70b-907d2bd124c5",
+      "name": "Prepare For AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "count-gt-0",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "df730c25-397a-4368-a367-101bc4fd9446",
+      "name": "Has Articles",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        928,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Summarize each of the following news articles.\n\nReturn exactly one entry per article, using the SAME \"index\" value given.\nAssign each article to one category from: \"Technology & AI\", \"Science\", \"Business & Economy\", \"World News\", \"Pakistan News\".\nGive each article a \"significance\" score from 1 (minor) to 10 (major global importance).\nFor each article also provide:\n- \"key_points\": an array of exactly 5 short strings, each a distinct factual point taken only from the headline/description.\n- \"vocabulary\": an array of exactly 8 objects, each with \"word\" (a useful or less common word or phrase relevant to the article), \"meaning\" (a simple plain-English definition), and \"example\" (one short original sentence using the word).\n\nArticles (JSON):\n{{ JSON.stringify($json.articles) }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a careful, neutral news summarizer.\nFor each article write a concise 2-4 sentence summary.\nRules you must follow:\n- Use simple, clear language.\n- Stay strictly factual and neutral; never take a political side or advise which candidate or position to support.\n- Do NOT invent information or add facts absent from the provided headline/description.\n- If something is an allegation or claim, describe it as a claim.\n- Avoid sensational or misleading wording.\n- Preserve important dates, names, numbers, and locations exactly as given.\n- Base the summary only on the supplied headline and description. If the description is thin, keep the summary short rather than guessing.\n- Do not output URLs; the workflow attaches the original source URL separately."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "952a6ce1-3e2f-4682-98c6-a83994f7fc2c",
+      "name": "AI Summarizer",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1152,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini",
+          "cachedResultName": "gpt-5-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "f4ae71a9-e202-4288-bd3d-299f881182bc",
+      "name": "Summarizer Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1168,
+        -224
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"summaries\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"index\":{\"type\":\"number\"},\"category\":{\"type\":\"string\",\"enum\":[\"Technology & AI\",\"Science\",\"Business & Economy\",\"World News\",\"Pakistan News\"]},\"summary\":{\"type\":\"string\"},\"significance\":{\"type\":\"number\"},\"key_points\":{\"type\":\"array\",\"minItems\":5,\"maxItems\":5,\"items\":{\"type\":\"string\"}},\"vocabulary\":{\"type\":\"array\",\"minItems\":8,\"maxItems\":8,\"items\":{\"type\":\"object\",\"properties\":{\"word\":{\"type\":\"string\"},\"meaning\":{\"type\":\"string\"},\"example\":{\"type\":\"string\"}},\"required\":[\"word\",\"meaning\",\"example\"]}}},\"required\":[\"index\",\"category\",\"summary\",\"significance\",\"key_points\",\"vocabulary\"]}}},\"required\":[\"summaries\"]}"
+      },
+      "id": "6e3a8074-e9a3-4e6e-99ac-17f0bbe377c6",
+      "name": "Summary Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1296,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const LF = String.fromCharCode(10);\nconst ai = $input.first().json || {};\nconst summaries = (ai.output && ai.output.summaries) || ai.summaries || [];\nconst articles = ($('Prepare For AI').first().json.articles) || [];\nconst CATS = ['Technology & AI', 'Science', 'Business & Economy', 'World News', 'Pakistan News'];\nconst byIndex = {};\nfor (const s of summaries) { byIndex[s.index] = s; }\nfunction esc(str){return String(str==null?'':str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}\nconst merged = articles.map(a => {\n  const s = byIndex[a.index] || {};\n  let cat = s.category; if (!CATS.includes(cat)) cat = 'World News';\n  const summary = (s.summary && String(s.summary).trim()) || a.description || 'Summary unavailable.';\n  const sig = (typeof s.significance === 'number') ? s.significance : 0;\n  const keyPoints = Array.isArray(s.key_points) ? s.key_points.filter(k => k != null && String(k).trim()).map(k => String(k).trim()) : [];\n  const vocabulary = Array.isArray(s.vocabulary) ? s.vocabulary.filter(v => v && v.word) : [];\n  return { headline: a.headline, summary, keyPoints, vocabulary, source: a.source, pubDate: a.pubDate, url: a.url, imageUrl: a.imageUrl, category: cat, significance: sig };\n});\nconst dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });\n// ---- Markdown ----\nconst md = [];\nmd.push('# DAILY NEWS BRIEFING');\nmd.push('');\nmd.push('**Date:** ' + dateStr);\nfor (const cat of CATS) {\n  const list = merged.filter(m => m.category === cat);\n  md.push(''); md.push('## ' + cat);\n  if (!list.length) { md.push(''); md.push('_No stories in this category today._'); continue; }\n  for (const m of list) {\n    md.push(''); md.push('### ' + m.headline);\n    md.push(''); md.push('**Summary:**'); md.push(m.summary);\n    if (m.keyPoints.length) { md.push(''); md.push('**Key Points:**'); m.keyPoints.forEach(k => md.push('- ' + k)); }\n    if (m.vocabulary.length) { md.push(''); md.push('**Vocabulary:**'); m.vocabulary.forEach(v => md.push('- **' + v.word + '**: ' + (v.meaning || '') + ' _Example:_ ' + (v.example || ''))); }\n    md.push(''); md.push('**Source:** ' + m.source);\n    md.push('**Published:** ' + m.pubDate);\n    md.push('**Original Article:** ' + m.url);\n    md.push(''); md.push('---');\n  }\n}\nconst top = merged.slice().sort((a, b) => b.significance - a.significance).slice(0, 5);\nmd.push(''); md.push('## Top Stories');\nif (!top.length) { md.push(''); md.push('_None._'); }\ntop.forEach((m, i) => { md.push((i + 1) + '. ' + m.headline + ' (' + m.source + ') — ' + m.url); });\nconst briefing_markdown = md.join(LF);\n// ---- HTML ----\nconst h = [];\nh.push('<div style=\"font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:0 auto;color:#222;line-height:1.5\">');\nh.push('<h1 style=\"border-bottom:2px solid #444;padding-bottom:6px\">Daily News Briefing</h1>');\nh.push('<p><strong>Date:</strong> ' + esc(dateStr) + '</p>');\nfor (const cat of CATS) {\n  const list = merged.filter(m => m.category === cat);\n  h.push('<h2 style=\"margin-top:28px;color:#1a1a1a\">' + esc(cat) + '</h2>');\n  if (!list.length) { h.push('<p style=\"color:#888\"><em>No stories in this category today.</em></p>'); continue; }\n  for (const m of list) {\n    h.push('<div style=\"margin:0 0 22px 0;padding-bottom:14px;border-bottom:1px solid #eee\">');\n    h.push('<h3 style=\"margin:0 0 6px 0\">' + esc(m.headline) + '</h3>');\n    if (m.imageUrl) h.push('<p><img src=\"' + esc(m.imageUrl) + '\" alt=\"\" style=\"max-width:100%;height:auto;border-radius:6px\"/></p>');\n    h.push('<p><strong>Summary:</strong><br/>' + esc(m.summary) + '</p>');\n    if (m.keyPoints.length) { h.push('<p style=\"margin-bottom:4px\"><strong>Key Points:</strong></p><ul style=\"margin-top:0\">' + m.keyPoints.map(k => '<li>' + esc(k) + '</li>').join('') + '</ul>'); }\n    if (m.vocabulary.length) { h.push('<p style=\"margin-bottom:4px\"><strong>Vocabulary:</strong></p><ul style=\"margin-top:0\">' + m.vocabulary.map(v => '<li><strong>' + esc(v.word) + '</strong>: ' + esc(v.meaning) + '<br/><em style=\"color:#555\">Example: ' + esc(v.example) + '</em></li>').join('') + '</ul>'); }\n    h.push('<p style=\"font-size:13px;color:#555\"><strong>Source:</strong> ' + esc(m.source) + '<br/>');\n    h.push('<strong>Published:</strong> ' + esc(m.pubDate) + '<br/>');\n    h.push('<strong>Original Article:</strong> <a href=\"' + esc(m.url) + '\">' + esc(m.url) + '</a></p>');\n    h.push('</div>');\n  }\n}\nh.push('<h2 style=\"margin-top:28px\">Top Stories</h2>');\nif (!top.length) { h.push('<p><em>None.</em></p>'); } else {\n  h.push('<ol>');\n  for (const m of top) { h.push('<li><a href=\"' + esc(m.url) + '\">' + esc(m.headline) + '</a> <span style=\"color:#777\">(' + esc(m.source) + ')</span></li>'); }\n  h.push('</ol>');\n}\nh.push('</div>');\nconst briefing_html = h.join(LF);\nreturn [{ json: { subject: 'Daily News Briefing \\u2014 ' + dateStr, dateStr, count: merged.length, briefing_markdown, briefing_html } }];"
+      },
+      "id": "8e5be8a4-ae28-4086-b3b6-8cad9bc12d09",
+      "name": "Format Briefing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        -336
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "date",
+              "name": "dateStr",
+              "value": "={{ $now.toFormat(\"LLLL d, yyyy\") }}",
+              "type": "string"
+            },
+            {
+              "id": "msg",
+              "name": "message",
+              "value": "No suitable news articles were found for today's briefing.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c9c02968-8d9f-4335-9ffd-a3343935c045",
+      "name": "Compose No-News Notice",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1216,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "fileName": "=News-{{ $now.format('yyyy-MM-dd') }}.html",
+        "parentId": "E7182B03A42CAFE8!s5fc21ed95c314cb0ad2df5247f5a68a9",
+        "fileContent": "={{ $json.briefing_html }}"
+      },
+      "type": "n8n-nodes-base.microsoftOneDrive",
+      "typeVersion": 1.1,
+      "position": [
+        1776,
+        -240
+      ],
+      "id": "86a3bd9f-fa76-4e9d-8d5d-0f48c7cf737d",
+      "name": "Upload a file",
+      "credentials": {
+        "microsoftOneDriveOAuth2Api": {
+          "id": "zZ9tuzE7zGkI0hWC",
+          "name": "Microsoft Drive account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Reuters",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch BBC",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Al Jazeera",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Dawn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Reuters": {
+      "main": [
+        [
+          {
+            "node": "Merge Feeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch BBC": {
+      "main": [
+        [
+          {
+            "node": "Merge Feeds",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fetch Al Jazeera": {
+      "main": [
+        [
+          {
+            "node": "Merge Feeds",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Fetch Dawn": {
+      "main": [
+        [
+          {
+            "node": "Merge Feeds",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Merge Feeds": {
+      "main": [
+        [
+          {
+            "node": "Combine News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine News": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Filter Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Articles": {
+      "main": [
+        [
+          {
+            "node": "Limit Stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit Stories": {
+      "main": [
+        [
+          {
+            "node": "Prepare For AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare For AI": {
+      "main": [
+        [
+          {
+            "node": "Has Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Articles": {
+      "main": [
+        [
+          {
+            "node": "AI Summarizer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose No-News Notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Summarizer": {
+      "main": [
+        [
+          {
+            "node": "Format Briefing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarizer Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Summarizer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Summarizer",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Briefing": {
+      "main": [
+        [
+          {
+            "node": "Upload a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f4e32782-cf28-463c-af88-eff736255381",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3e373f7886fb11afa4fd08b3cc0b5934ac2d6f9c88e9baea5b54fdfbad93c3fb"
+  },
+  "nodeGroups": [
+    {
+      "id": "b1d41023-b5b9-471e-a262-2dc83df197d9",
+      "name": "Prepare articles",
+      "nodeIds": [
+        "b39c2b5b-a1ed-4dcc-b6fd-057162b07fb6",
+        "b387ea97-7aa1-469e-9487-9e260ab48ac3",
+        "cc333b7b-86a3-4381-abe7-65e6e1cd773d",
+        "ff763e5f-e06f-46f6-adb2-8a32bad2d7e1",
+        "7b89453a-b618-4944-8d2d-51ee1edfcf49",
+        "4e36ebe1-8774-4402-b70b-907d2bd124c5"
+      ],
+      "description": "Merges all four feeds, tags each source, drops duplicates plus stale or promotional items, and keeps the 5 most recent stories."
+    },
+    {
+      "id": "7f69b743-daaa-4de7-9659-76850735ca10",
+      "name": "Generate & deliver briefing",
+      "nodeIds": [
+        "df730c25-397a-4368-a367-101bc4fd9446",
+        "952a6ce1-3e2f-4682-98c6-a83994f7fc2c",
+        "f4ae71a9-e202-4288-bd3d-299f881182bc",
+        "6e3a8074-e9a3-4e6e-99ac-17f0bbe377c6",
+        "8e5be8a4-ae28-4086-b3b6-8cad9bc12d09",
+        "c9c02968-8d9f-4335-9ffd-a3343935c045"
+      ],
+      "description": "Summarises the shortlist with AI, formats a categorised briefing with key points and vocabulary, or a no-news notice."
+    }
+  ],
+  "id": "3GuoIZ9RnhAozxQX",
+  "tags": []
+}
